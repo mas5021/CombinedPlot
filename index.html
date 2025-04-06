@@ -2,201 +2,152 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Conclusion: Radar Chart Summary</title>
+  <title>Conclusion: Combined Normalized Trends (Crop vs CO₂)</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
       background: #f8f9fa;
       margin: 20px;
-      text-align: center;
     }
     h1 {
+      text-align: center;
       margin-bottom: 1rem;
     }
     svg {
+      display: block;
+      margin: auto;
       background: white;
       border: 1px solid #ddd;
-      margin: auto;
-      display: block;
-    }
-    .axisLabel {
-      font-size: 12px;
-      fill: #333;
     }
     .legend {
       font-size: 12px;
-      fill: #333;
     }
   </style>
 </head>
 <body>
-  <h1>Conclusion: Overall US Agricultural & Climate Summary</h1>
-  <svg id="radarChart" width="600" height="600"></svg>
+  <h1>Conclusion: Combined Normalized Trends of Crop Production &amp; CO₂</h1>
+  <svg id="combinedChart" width="1000" height="500"></svg>
   <script>
-    // Dataset URLs (using your actual datasets)
-    const CROP_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/3d3cf36c88a4f23a187cb4e12a835e10/raw/CropProduction.csv";
-    const CO2_CSV_URL  = "https://gist.githubusercontent.com/mystrycodes/f3e133db6c35f1f7180296e872441fe4/raw/Co2emmission.csv";
-    const CLIMATE_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/0e4190865121859997eec1fc2d5b4dcd/raw/d10453ccf854feb48e10319eb8025a973f938abe/climate.csv";
+    // Dataset URLs (only Crop & CO₂)
+    const CROP_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/3d3cf36c88a4f23a187cb4e12a835e10/raw/5aebb1fc334be000f4b756db6d5c83adf71e89ab/CropProduction.csv";
+    const CO2_CSV_URL  = "https://gist.githubusercontent.com/mystrycodes/f3e133db6c35f1f7180296e872441fe4/raw/4c5bc29c4c18f3510bead103c2188d5a919f066d/Co2emmission.csv";
 
-    // Load datasets concurrently
+    // Load both datasets concurrently
     Promise.all([
-      // Crop data: expects columns TIME, Value, Country
+      // Crop CSV: expects columns TIME, Value, Country
       d3.csv(CROP_CSV_URL, d => ({
         year: +d.TIME,
         production: +d.Value,
         country: d.Country
       })).then(data => data.filter(d => d.country && d.country.includes("United States"))),
-      // CO₂ data: expects columns Year, total_emission, Country
+      
+      // CO₂ CSV: expects columns Year, total_emission, Country
       d3.csv(CO2_CSV_URL, d => ({
         year: +d.Year,
         co2: +d.total_emission,
         country: d.Country
-      })).then(data => data.filter(d => d.country && d.country.includes("United States"))),
-      // Climate data: expects columns Year, Temperature, VegetationIndex (case-sensitive)
-      d3.csv(CLIMATE_CSV_URL, d => ({
-        year: +d.Year,
-        Temperature: +d.Temperature,
-        VegetationIndex: +d.VegetationIndex
-      }))
-    ]).then(([cropData, co2Data, climateData]) => {
-      // Merge datasets on common years (ignoring year afterward)
+      })).then(data => data.filter(d => d.country && d.country.includes("United States")))
+    ]).then(([cropData, co2Data]) => {
+      // Merge by common years
       const commonYears = [...new Set(cropData.map(d => d.year))]
-        .filter(y => co2Data.some(d => d.year === y) && climateData.some(d => d.year === y))
+        .filter(y => co2Data.some(c => c.year === y))
         .sort((a, b) => a - b);
 
       const mergedData = commonYears.map(year => {
-        const crop = cropData.find(d => d.year === year);
-        const co2 = co2Data.find(d => d.year === year);
-        const climate = climateData.find(d => d.year === year);
+        const c = cropData.find(d => d.year === year);
+        const co = co2Data.find(d => d.year === year);
         return {
           year: year,
-          production: crop.production,
-          co2: co2.co2,
-          Temperature: climate.Temperature,
-          VegetationIndex: climate.VegetationIndex
+          production: c.production,
+          co2: co.co2
         };
       });
 
-      // If mergedData is empty, log an error.
+      // If mergedData is empty, no overlapping years => chart would be blank
       if (mergedData.length === 0) {
-        console.error("No overlapping years found among datasets.");
+        console.error("No overlapping years found between Crop and CO₂ data.");
         return;
       }
 
-      // Compute average values for each variable.
-      const meanProduction = d3.mean(mergedData, d => d.production);
-      const meanCO2        = d3.mean(mergedData, d => d.co2);
-      const meanTemperature = d3.mean(mergedData, d => d.Temperature);
-      const meanVegetation = d3.mean(mergedData, d => d.VegetationIndex);
+      // Normalize each variable to [0,1]
+      function normalize(data, key) {
+        const ext = d3.extent(data, d => d[key]);
+        data.forEach(d => {
+          d["norm_" + key] = (d[key] - ext[0]) / (ext[1] - ext[0]);
+        });
+      }
+      normalize(mergedData, "production");
+      normalize(mergedData, "co2");
 
-      // For normalization, also get the min and max from mergedData for each variable.
-      const prodExtent = d3.extent(mergedData, d => d.production);
-      const co2Extent = d3.extent(mergedData, d => d.co2);
-      const tempExtent = d3.extent(mergedData, d => d.Temperature);
-      const vegExtent  = d3.extent(mergedData, d => d.VegetationIndex);
-
-      // Normalize each mean value to [0, 1]
-      const normProduction = (meanProduction - prodExtent[0]) / (prodExtent[1] - prodExtent[0]);
-      const normCO2        = (meanCO2 - co2Extent[0]) / (co2Extent[1] - co2Extent[0]);
-      const normTemperature = (meanTemperature - tempExtent[0]) / (tempExtent[1] - tempExtent[0]);
-      const normVegetation = (meanVegetation - vegExtent[0]) / (vegExtent[1] - vegExtent[0]);
-
-      // Prepare summary data for radar chart.
-      const summaryData = [
-        { axis: "Crop Production", value: normProduction },
-        { axis: "CO₂ Emissions", value: normCO2 },
-        { axis: "Temperature", value: normTemperature },
-        { axis: "Vegetation Index", value: normVegetation }
-      ];
-
-      drawRadarChart(summaryData);
+      drawCombinedChart(mergedData);
     }).catch(error => {
       console.error("Error loading data:", error);
     });
 
-    function drawRadarChart(data) {
-      const svg = d3.select("#radarChart");
-      const width = +svg.attr("width");
-      const height = +svg.attr("height");
-      const margin = { top: 50, right: 50, bottom: 50, left: 50 };
-      const radius = Math.min(width, height) / 2 - Math.max(margin.left, margin.right);
-      const centerX = width / 2;
-      const centerY = height / 2;
+    function drawCombinedChart(data) {
+      const svg = d3.select("#combinedChart");
+      const width = +svg.attr("width") - 100;
+      const height = +svg.attr("height") - 100;
+      const margin = { top: 50, right: 120, bottom: 50, left: 70 };
+      const g = svg.append("g").attr("transform", `translate(${margin.left}, ${margin.top})`);
 
-      // Number of axes (variables)
-      const numAxes = data.length;
-      const angleSlice = 2 * Math.PI / numAxes;
+      // x-scale for year
+      const x = d3.scaleLinear()
+        .domain(d3.extent(data, d => d.year))
+        .range([0, width]);
 
-      // Scale for the radius
-      const rScale = d3.scaleLinear()
-                       .domain([0, 1])
-                       .range([0, radius]);
+      // y-scale for normalized values [0..1]
+      const y = d3.scaleLinear()
+        .domain([0, 1])
+        .range([height, 0]);
 
-      // Create group container and move to center
-      const g = svg.append("g")
-                   .attr("transform", `translate(${centerX},${centerY})`);
+      // Axes
+      g.append("g")
+       .attr("transform", `translate(0, ${height})`)
+       .call(d3.axisBottom(x).tickFormat(d3.format("d")));  // show integer years
+      g.append("g")
+       .call(d3.axisLeft(y).ticks(5));
 
-      // Draw radial grid circles
-      const levels = 5;
-      for (let i = 1; i <= levels; i++) {
-        g.append("circle")
-         .attr("r", radius * i / levels)
+      // Line generator
+      const lineGen = d3.line()
+        .x(d => x(d.year))
+        .y(d => y(d.value));
+
+      // We have two variables: production & co2
+      const series = [
+        { name: "Crop Production", key: "norm_production", color: "#2980b9" },
+        { name: "CO₂ Emissions",   key: "norm_co2",        color: "#8e44ad" }
+      ];
+
+      // Draw lines
+      series.forEach(s => {
+        const lineData = data.map(d => ({ year: d.year, value: d[s.key] }));
+        g.append("path")
+         .datum(lineData)
          .attr("fill", "none")
-         .attr("stroke", "#CDCDCD")
-         .attr("stroke-dasharray", "2,2");
-      }
-
-      // Draw radial axes lines and axis labels
-      data.forEach((d, i) => {
-        const angle = i * angleSlice - Math.PI / 2;
-        const x = rScale(1) * Math.cos(angle);
-        const y = rScale(1) * Math.sin(angle);
-        // Axis line
-        g.append("line")
-         .attr("x1", 0)
-         .attr("y1", 0)
-         .attr("x2", x)
-         .attr("y2", y)
-         .attr("stroke", "#CDCDCD")
-         .attr("stroke-width", 1);
-        // Axis label: positioned slightly beyond the grid
-        g.append("text")
-         .attr("x", (rScale(1) + 10) * Math.cos(angle))
-         .attr("y", (rScale(1) + 10) * Math.sin(angle))
-         .attr("dy", "0.35em")
-         .attr("text-anchor", "middle")
-         .attr("class", "axisLabel")
-         .text(d.axis);
+         .attr("stroke", s.color)
+         .attr("stroke-width", 2)
+         .attr("d", lineGen);
       });
 
-      // Create radar line generator using radial coordinates
-      const radarLine = d3.lineRadial()
-                          .angle((d, i) => i * angleSlice)
-                          .radius(d => rScale(d.value))
-                          .curve(d3.curveLinearClosed);
-
-      // Draw the radar area (polygon)
-      g.append("path")
-       .datum(data)
-       .attr("d", radarLine)
-       .attr("fill", "#2980b9")
-       .attr("fill-opacity", 0.5)
-       .attr("stroke", "#2980b9")
-       .attr("stroke-width", 2);
-
-      // Add data point circles on the polygon
-      g.selectAll(".radarCircle")
-       .data(data)
-       .enter()
-       .append("circle")
-       .attr("class", "radarCircle")
-       .attr("r", 4)
-       .attr("cx", (d, i) => rScale(d.value) * Math.cos(i * angleSlice - Math.PI / 2))
-       .attr("cy", (d, i) => rScale(d.value) * Math.sin(i * angleSlice - Math.PI / 2))
-       .attr("fill", "#fff")
-       .attr("stroke", "#2980b9")
-       .attr("stroke-width", 2);
+      // Legend
+      const legend = svg.append("g")
+        .attr("class", "legend")
+        .attr("transform", `translate(${width + margin.left + 20}, ${margin.top})`);
+      
+      series.forEach((s, i) => {
+        const legItem = legend.append("g")
+          .attr("transform", `translate(0, ${i * 20})`);
+        legItem.append("rect")
+          .attr("width", 12)
+          .attr("height", 12)
+          .attr("fill", s.color);
+        legItem.append("text")
+          .attr("x", 16)
+          .attr("y", 10)
+          .text(s.name);
+      });
     }
   </script>
 </body>
