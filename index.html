@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Conclusion: Combined Normalized Trends (Crop vs CO₂)</title>
+  <title>Conclusion: Connected Scatterplot (Crop vs CO₂)</title>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
     body {
@@ -12,44 +12,72 @@
     }
     h1 {
       text-align: center;
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
     }
-    svg {
+    #chart {
       display: block;
       margin: auto;
       background: white;
       border: 1px solid #ddd;
     }
-    .legend {
+    .axis path, .axis line {
+      stroke: #333;
+      shape-rendering: crispEdges;
+    }
+    .tooltip {
+      position: absolute;
+      padding: 8px;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      border-radius: 4px;
+      pointer-events: none;
       font-size: 12px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .play-button {
+      display: block;
+      margin: 10px auto;
+      padding: 8px 16px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .data-line {
+      fill: none;
+      stroke-width: 2;
+    }
+    .data-point {
+      stroke: #fff;
+      stroke-width: 1px;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <h1>Conclusion: Combined Normalized Trends of Crop Production &amp; CO₂</h1>
-  <svg id="combinedChart" width="1000" height="500"></svg>
+  <h1>Conclusion: Connected Scatterplot of Crop Production &amp; CO₂ Over Time</h1>
+  <button class="play-button" id="playBtn">Play Animation</button>
+  <svg id="chart" width="800" height="500"></svg>
+  <div id="tooltip" class="tooltip"></div>
+
   <script>
-    // Dataset URLs (only Crop & CO₂)
+    // CSV URLs
     const CROP_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/3d3cf36c88a4f23a187cb4e12a835e10/raw/5aebb1fc334be000f4b756db6d5c83adf71e89ab/CropProduction.csv";
     const CO2_CSV_URL  = "https://gist.githubusercontent.com/mystrycodes/f3e133db6c35f1f7180296e872441fe4/raw/4c5bc29c4c18f3510bead103c2188d5a919f066d/Co2emmission.csv";
 
-    // Load both datasets concurrently
+    // Load both datasets
     Promise.all([
-      // Crop CSV: expects columns TIME, Value, Country
       d3.csv(CROP_CSV_URL, d => ({
         year: +d.TIME,
         production: +d.Value,
         country: d.Country
       })).then(data => data.filter(d => d.country && d.country.includes("United States"))),
-      
-      // CO₂ CSV: expects columns Year, total_emission, Country
       d3.csv(CO2_CSV_URL, d => ({
         year: +d.Year,
         co2: +d.total_emission,
         country: d.Country
       })).then(data => data.filter(d => d.country && d.country.includes("United States")))
     ]).then(([cropData, co2Data]) => {
-      // Merge by common years
+      // Merge by overlapping years
       const commonYears = [...new Set(cropData.map(d => d.year))]
         .filter(y => co2Data.some(c => c.year === y))
         .sort((a, b) => a - b);
@@ -59,96 +87,153 @@
         const co = co2Data.find(d => d.year === year);
         return {
           year: year,
-          production: c.production,
-          co2: co.co2
+          production: +c.production,
+          co2: +co.co2
         };
       });
 
-      // If mergedData is empty, no overlapping years => chart would be blank
       if (mergedData.length === 0) {
-        console.error("No overlapping years found between Crop and CO₂ data.");
+        console.error("No overlapping years found. Chart will be empty.");
         return;
       }
 
-      // Normalize each variable to [0,1]
-      function normalize(data, key) {
-        const ext = d3.extent(data, d => d[key]);
-        data.forEach(d => {
-          d["norm_" + key] = (d[key] - ext[0]) / (ext[1] - ext[0]);
-        });
-      }
-      normalize(mergedData, "production");
-      normalize(mergedData, "co2");
+      // Sort by year so the line draws in chronological order
+      mergedData.sort((a, b) => a.year - b.year);
 
-      drawCombinedChart(mergedData);
-    }).catch(error => {
-      console.error("Error loading data:", error);
+      drawConnectedScatter(mergedData);
+    }).catch(err => {
+      console.error("Data load error:", err);
     });
 
-    function drawCombinedChart(data) {
-      const svg = d3.select("#combinedChart");
-      const width = +svg.attr("width") - 100;
-      const height = +svg.attr("height") - 100;
-      const margin = { top: 50, right: 120, bottom: 50, left: 70 };
-      const g = svg.append("g").attr("transform", `translate(${margin.left}, ${margin.top})`);
+    function drawConnectedScatter(data) {
+      const svg = d3.select("#chart");
+      const width = +svg.attr("width") - 80;
+      const height = +svg.attr("height") - 80;
+      const margin = { top: 40, right: 40, bottom: 40, left: 60 };
 
-      // x-scale for year
-      const x = d3.scaleLinear()
-        .domain(d3.extent(data, d => d.year))
+      const g = svg.append("g")
+        .attr("transform", `translate(${margin.left},${margin.top})`);
+
+      // Create scales
+      const xExtent = d3.extent(data, d => d.co2);
+      const yExtent = d3.extent(data, d => d.production);
+
+      const xScale = d3.scaleLinear()
+        .domain(xExtent).nice()
         .range([0, width]);
 
-      // y-scale for normalized values [0..1]
-      const y = d3.scaleLinear()
-        .domain([0, 1])
+      const yScale = d3.scaleLinear()
+        .domain(yExtent).nice()
         .range([height, 0]);
+
+      // Color scale by year
+      const [minYear, maxYear] = d3.extent(data, d => d.year);
+      const colorScale = d3.scaleSequential(d3.interpolateTurbo)
+                           .domain([minYear, maxYear]);
 
       // Axes
       g.append("g")
-       .attr("transform", `translate(0, ${height})`)
-       .call(d3.axisBottom(x).tickFormat(d3.format("d")));  // show integer years
+        .attr("transform", `translate(0, ${height})`)
+        .call(d3.axisBottom(xScale).ticks(6).tickFormat(d => `${(d/1e6).toFixed(1)}M t`));
       g.append("g")
-       .call(d3.axisLeft(y).ticks(5));
+        .call(d3.axisLeft(yScale).ticks(6).tickFormat(d3.format(",.0f")));
 
-      // Line generator
+      // Axis labels
+      g.append("text")
+        .attr("x", width / 2)
+        .attr("y", height + 35)
+        .attr("text-anchor", "middle")
+        .text("CO₂ Emissions (Million Metric Tons)");
+
+      g.append("text")
+        .attr("transform", "rotate(-90)")
+        .attr("x", -height / 2)
+        .attr("y", -50)
+        .attr("text-anchor", "middle")
+        .text("Crop Production (t)");
+
+      // Create line generator (connected scatter)
       const lineGen = d3.line()
-        .x(d => x(d.year))
-        .y(d => y(d.value));
+        .x(d => xScale(d.co2))
+        .y(d => yScale(d.production))
+        .curve(d3.curveCardinal); // a smooth curve
 
-      // We have two variables: production & co2
-      const series = [
-        { name: "Crop Production", key: "norm_production", color: "#2980b9" },
-        { name: "CO₂ Emissions",   key: "norm_co2",        color: "#8e44ad" }
-      ];
+      // Draw line
+      g.append("path")
+        .datum(data)
+        .attr("class", "data-line")
+        .attr("fill", "none")
+        .attr("stroke", "#999")
+        .attr("stroke-width", 2)
+        .attr("d", lineGen);
 
-      // Draw lines
-      series.forEach(s => {
-        const lineData = data.map(d => ({ year: d.year, value: d[s.key] }));
-        g.append("path")
-         .datum(lineData)
-         .attr("fill", "none")
-         .attr("stroke", s.color)
-         .attr("stroke-width", 2)
-         .attr("d", lineGen);
+      // Circles for each point
+      g.selectAll(".data-point")
+        .data(data)
+        .enter().append("circle")
+        .attr("class", "data-point")
+        .attr("r", 5)
+        .attr("cx", d => xScale(d.co2))
+        .attr("cy", d => yScale(d.production))
+        .attr("fill", d => colorScale(d.year))
+        .on("mouseover", (event, d) => showTooltip(event, d))
+        .on("mouseout", hideTooltip);
+
+      // Add highlight circle for the animation
+      const highlight = g.append("circle")
+        .attr("r", 7)
+        .attr("fill", "orange")
+        .attr("stroke", "#fff")
+        .attr("stroke-width", 2)
+        .style("opacity", 0);
+
+      // Handle "Play" button click
+      const playBtn = document.getElementById("playBtn");
+      playBtn.addEventListener("click", () => {
+        // Animate the highlight circle from first year to last year
+        highlight.style("opacity", 1);
+
+        // Build array of [co2, production] for each year in chronological order
+        const points = data.map(d => [xScale(d.co2), yScale(d.production)]);
+
+        // We'll do a transition that steps through each point
+        // using an index-based approach and d3's transitions
+        let i = 0;
+        function moveNext() {
+          if (i >= points.length) {
+            highlight.style("opacity", 0);
+            return; // done
+          }
+          highlight.transition()
+            .duration(600)
+            .attr("cx", points[i][0])
+            .attr("cy", points[i][1])
+            .on("end", () => {
+              i++;
+              moveNext();
+            });
+        }
+        moveNext();
       });
 
-      // Legend
-      const legend = svg.append("g")
-        .attr("class", "legend")
-        .attr("transform", `translate(${width + margin.left + 20}, ${margin.top})`);
-      
-      series.forEach((s, i) => {
-        const legItem = legend.append("g")
-          .attr("transform", `translate(0, ${i * 20})`);
-        legItem.append("rect")
-          .attr("width", 12)
-          .attr("height", 12)
-          .attr("fill", s.color);
-        legItem.append("text")
-          .attr("x", 16)
-          .attr("y", 10)
-          .text(s.name);
-      });
+      // Tooltip
+      const tooltip = d3.select("#tooltip");
+      function showTooltip(event, d) {
+        tooltip.style("opacity", 1)
+               .style("left", (event.pageX + 10) + "px")
+               .style("top", (event.pageY - 20) + "px")
+               .html(`
+                 <div><strong>Year:</strong> ${d.year}</div>
+                 <div><strong>CO₂:</strong> ${(d.co2/1e6).toFixed(1)}M t</div>
+                 <div><strong>Production:</strong> ${d.production.toLocaleString()} t</div>
+               `);
+      }
+      function hideTooltip() {
+        tooltip.style("opacity", 0);
+      }
     }
   </script>
+  <!-- Tooltip container -->
+  <div id="tooltip" class="tooltip"></div>
 </body>
 </html>
