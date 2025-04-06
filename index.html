@@ -76,41 +76,27 @@
   
   <script>
     /***** DATA LOADING & PREPARATION *****/
-    // URLs for agriculture datasets
+    // URLs for the datasets
+    // Replace with the actual URL for your climate data CSV
+    const CLIMATE_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/0e4190865121859997eec1fc2d5b4dcd/raw/d10453ccf854feb48e10319eb8025a973f938abe/climate.csv";
     const CROP_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/3d3cf36c88a4f23a187cb4e12a835e10/raw/CropProduction.csv";
     const CO2_CSV_URL  = "https://gist.githubusercontent.com/mystrycodes/f3e133db6c35f1f7180296e872441fe4/raw/Co2emmission.csv";
     
-    // Inline climate CSV data (sample data for demonstration)
-    const climateCSV = `Year,SolarIrradiance,CloudCover,Precipitation,Temperature,VegetationIndex
-2000,200,50,100,15,0.30
-2001,210,48,105,15.5,0.32
-2002,205,52,110,14.8,0.31
-2003,220,45,115,16,0.33
-2004,215,47,108,15.2,0.34
-2005,210,50,112,15.0,0.32
-2006,225,43,118,16.2,0.35
-2007,230,42,120,16.5,0.36
-2008,220,44,115,16.0,0.34
-2009,215,46,110,15.8,0.33
-2010,210,48,108,15.5,0.32`;
-    
-    // Parse the inline climate CSV data
-    const climateData = d3.csvParse(climateCSV, d => ({
-      Year: +d.Year,
-      SolarIrradiance: +d.SolarIrradiance,
-      CloudCover: +d.CloudCover,
-      Precipitation: +d.Precipitation,
-      Temperature: +d.Temperature,
-      VegetationIndex: +d.VegetationIndex
-    }));
-    
-    // Global variables for agriculture datasets
+    let climateData = null;
     let cropData = null;
     let co2Data = null;
-    let agriMergedData = []; // merged crop and CO₂ data
+    let agriMergedData = []; // Merged crop and CO₂ data
     
-    // Load agriculture datasets (Crop Production and CO₂ Emission)
+    // Use Promise.all to load all three CSV files concurrently.
     Promise.all([
+      d3.csv(CLIMATE_CSV_URL, d => ({
+        Year: +d.Year,
+        SolarIrradiance: +d.SolarIrradiance,
+        CloudCover: +d.CloudCover,
+        Precipitation: +d.Precipitation,
+        Temperature: +d.Temperature,
+        VegetationIndex: +d.VegetationIndex
+      })),
       d3.csv(CROP_CSV_URL, d => ({
           year: +d.TIME,
           production: +d.Value,
@@ -126,9 +112,10 @@
       })).then(data => {
           return data.filter(d => d.country && d.country.includes("United States") && !isNaN(d.year) && !isNaN(d.co2));
       })
-    ]).then(function(datasets) {
-      cropData = datasets[0];
-      co2Data = datasets[1];
+    ]).then(function([climate, crop, co2]) {
+      climateData = climate;
+      cropData = crop;
+      co2Data = co2;
       
       // Merge agriculture datasets by common year
       const cropYears = new Set(cropData.map(d => d.year));
@@ -143,12 +130,12 @@
         };
       });
       
-      // Once agriculture data is ready, draw all charts
+      // Once all data is ready, draw all charts.
       drawClimateChart();
       drawAgricultureChart();
       drawTimelineChart();
     }).catch(error => {
-      console.error("Error loading agriculture data:", error);
+      console.error("Error loading data:", error);
     });
     
     /***** 1. CLIMATE ANALYSIS CHART *****/
