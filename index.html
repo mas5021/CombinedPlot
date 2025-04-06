@@ -20,6 +20,7 @@
     svg {
       background: white;
       border: 1px solid #ddd;
+      margin-bottom: 40px;
     }
     #climate-controls {
       text-align: center;
@@ -27,17 +28,6 @@
     }
     .legend {
       font-size: 12px;
-    }
-    .legend-item {
-      display: inline-block;
-      margin-right: 10px;
-    }
-    .legend-color {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      margin-right: 4px;
-      vertical-align: middle;
     }
   </style>
 </head>
@@ -62,22 +52,22 @@
     <svg id="climate-chart" width="800" height="500"></svg>
   </section>
   
-  <!-- 2. Agricultural Analysis: CO₂ vs Crop Production Scatter Plot -->
+  <!-- 2. Agriculture Analysis: Dual-Axis Line Chart -->
   <section id="agriculture-analysis" class="chart-container">
-    <h2>Agricultural Analysis</h2>
+    <h2>Agriculture Analysis (Dual-Axis Line Chart)</h2>
     <svg id="agriculture-chart" width="800" height="500"></svg>
   </section>
   
-  <!-- 3. Timeline Analysis: Combined (Normalized) Trends -->
+  <!-- 3. Timeline Analysis: Combined Normalized Trends (if common years exist) -->
   <section id="timeline-analysis" class="chart-container">
     <h2>Timeline Analysis (Normalized Values)</h2>
     <svg id="timeline-chart" width="1000" height="500"></svg>
+    <div id="timeline-msg" style="text-align:center; color:red;"></div>
   </section>
   
   <script>
     /***** DATA LOADING & PREPARATION *****/
-    // URLs for the datasets
-    // Replace with the actual URL for your climate data CSV
+    // CSV URLs (provided)
     const CLIMATE_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/0e4190865121859997eec1fc2d5b4dcd/raw/d10453ccf854feb48e10319eb8025a973f938abe/climate.csv";
     const CROP_CSV_URL = "https://gist.githubusercontent.com/mystrycodes/3d3cf36c88a4f23a187cb4e12a835e10/raw/5aebb1fc334be000f4b756db6d5c83adf71e89ab/CropProduction.csv";
     const CO2_CSV_URL  = "https://gist.githubusercontent.com/mystrycodes/f3e133db6c35f1f7180296e872441fe4/raw/4c5bc29c4c18f3510bead103c2188d5a919f066d/Co2emmission.csv";
@@ -85,9 +75,8 @@
     let climateData = null;
     let cropData = null;
     let co2Data = null;
-    let agriMergedData = []; // Merged crop and CO₂ data
     
-    // Use Promise.all to load all three CSV files concurrently.
+    // Load all three datasets concurrently.
     Promise.all([
       d3.csv(CLIMATE_CSV_URL, d => ({
         Year: +d.Year,
@@ -102,35 +91,26 @@
           production: +d.Value,
           country: d.Country
       })).then(data => {
-          // Filter for US data and valid numbers
-          return data.filter(d => d.country && d.country.includes("United States") && !isNaN(d.year) && !isNaN(d.production));
+          // Accept rows that mention either "United States" or "USA"
+          return data.filter(d => d.country && (d.country.includes("United States") || d.country.includes("USA")) && !isNaN(d.year) && !isNaN(d.production));
       }),
       d3.csv(CO2_CSV_URL, d => ({
           year: +d.Year,
           co2: +d.total_emission,
           country: d.Country
       })).then(data => {
-          return data.filter(d => d.country && d.country.includes("United States") && !isNaN(d.year) && !isNaN(d.co2));
+          return data.filter(d => d.country && (d.country.includes("United States") || d.country.includes("USA")) && !isNaN(d.year) && !isNaN(d.co2));
       })
     ]).then(function([climate, crop, co2]) {
       climateData = climate;
       cropData = crop;
       co2Data = co2;
       
-      // Merge agriculture datasets by common year
-      const cropYears = new Set(cropData.map(d => d.year));
-      const commonYears = Array.from(new Set(co2Data.map(d => d.year))).filter(y => cropYears.has(y)).sort((a, b) => a - b);
-      agriMergedData = commonYears.map(year => {
-        const cropRow = cropData.find(d => d.year === year);
-        const co2Row = co2Data.find(d => d.year === year);
-        return {
-          year: year,
-          production: cropRow.production,
-          co2: co2Row.co2
-        };
-      });
+      console.log("Climate Data:", climateData.length, "rows");
+      console.log("Crop Data:", cropData.length, "rows");
+      console.log("CO₂ Data:", co2Data.length, "rows");
       
-      // Once all data is ready, draw all charts.
+      // Draw charts
       drawClimateChart();
       drawAgricultureChart();
       drawTimelineChart();
@@ -147,11 +127,11 @@
       const width = svgWidth - margin.left - margin.right;
       const height = svgHeight - margin.top - margin.bottom;
       
-      // Initial axes variables (default selections)
+      // Default axes variables
       let xVar = "SolarIrradiance";
       let yVar = "Temperature";
       
-      // Create scales
+      // Scales
       const xScale = d3.scaleLinear()
         .domain(d3.extent(climateData, d => d[xVar])).nice()
         .range([margin.left, margin.left + width]);
@@ -160,10 +140,9 @@
         .domain(d3.extent(climateData, d => d[yVar])).nice()
         .range([margin.top + height, margin.top]);
       
-      // Append axis groups
+      // Axes groups
       const xAxisGroup = svg.append("g")
         .attr("transform", `translate(0, ${margin.top + height})`);
-      
       const yAxisGroup = svg.append("g")
         .attr("transform", `translate(${margin.left}, 0)`);
       
@@ -172,39 +151,34 @@
         .attr("text-anchor", "middle")
         .attr("x", margin.left + width / 2)
         .attr("y", margin.top + height + 40)
-        .text("SolarIrradiance");
+        .text(xVar);
       
       const yLabel = svg.append("text")
         .attr("text-anchor", "middle")
         .attr("transform", `translate(${margin.left - 30}, ${margin.top + height / 2}) rotate(-90)`)
-        .text("Temperature");
+        .text(yVar);
       
-      // Group for data points
-      const pointsGroup = svg.append("g")
-        .attr("class", "points-group");
+      // Data points group
+      const pointsGroup = svg.append("g").attr("class", "points-group");
       
-      // Update the climate chart based on current control settings
+      // Function to update the chart based on control selections
       function updateClimateChart() {
-        // Read control values
         xVar = document.getElementById("climate-factor").value;
         yVar = document.querySelector('input[name="climate-y"]:checked').value;
         
-        // Update scales
         xScale.domain(d3.extent(climateData, d => d[xVar])).nice();
         yScale.domain(d3.extent(climateData, d => d[yVar])).nice();
         
-        // Update axes
         xAxisGroup.transition().duration(750).call(d3.axisBottom(xScale));
         yAxisGroup.transition().duration(750).call(d3.axisLeft(yScale));
         
-        // Update labels
         xLabel.text(xVar);
         yLabel.text(yVar);
         
-        // Bind and update points
+        // Bind data
         const circles = pointsGroup.selectAll("circle")
           .data(climateData);
-          
+        
         circles.enter()
           .append("circle")
           .attr("cx", d => xScale(d[xVar]))
@@ -219,87 +193,146 @@
         circles.exit().remove();
       }
       
-      // Initial render
       updateClimateChart();
-      
-      // Listen for control changes
       document.getElementById("climate-factor").addEventListener("change", updateClimateChart);
       d3.selectAll('input[name="climate-y"]').on("change", updateClimateChart);
     }
     
-    /***** 2. AGRICULTURAL ANALYSIS CHART (CO₂ vs Crop Production) *****/
+    /***** 2. AGRICULTURE ANALYSIS: DUAL-AXIS LINE CHART *****/
     function drawAgricultureChart() {
       const svg = d3.select("#agriculture-chart");
       const svgWidth = +svg.attr("width");
       const svgHeight = +svg.attr("height");
-      const margin = { top: 50, right: 50, bottom: 50, left: 50 };
+      const margin = { top: 50, right: 70, bottom: 50, left: 70 };
       const width = svgWidth - margin.left - margin.right;
       const height = svgHeight - margin.top - margin.bottom;
       
-      // Create scales
+      // Determine overall year range using crop and co2 data
+      const cropYears = cropData.map(d => d.year);
+      const co2Years = co2Data.map(d => d.year);
+      const allYears = cropYears.concat(co2Years);
+      const yearExtent = d3.extent(allYears);
+      
       const xScale = d3.scaleLinear()
-        .domain(d3.extent(agriMergedData, d => d.co2)).nice()
+        .domain(yearExtent)
         .range([margin.left, margin.left + width]);
       
-      const yScale = d3.scaleLinear()
-        .domain(d3.extent(agriMergedData, d => d.production)).nice()
+      // Left axis for Crop Production
+      const yScaleLeft = d3.scaleLinear()
+        .domain(d3.extent(cropData, d => d.production)).nice()
         .range([margin.top + height, margin.top]);
       
-      // Append axes
+      // Right axis for CO₂ Emissions
+      const yScaleRight = d3.scaleLinear()
+        .domain(d3.extent(co2Data, d => d.co2)).nice()
+        .range([margin.top + height, margin.top]);
+      
+      // Axes
       svg.append("g")
         .attr("transform", `translate(0, ${margin.top + height})`)
-        .call(d3.axisBottom(xScale).tickFormat(d3.format(".2s")));
+        .call(d3.axisBottom(xScale).tickFormat(d3.format("d")));
       
       svg.append("g")
         .attr("transform", `translate(${margin.left}, 0)`)
-        .call(d3.axisLeft(yScale).tickFormat(d3.format(".2s")));
-      
-      // Axis labels
-      svg.append("text")
-        .attr("text-anchor", "middle")
-        .attr("x", margin.left + width / 2)
-        .attr("y", margin.top + height + 40)
-        .text("CO₂ Emissions (t)");
-      
-      svg.append("text")
-        .attr("text-anchor", "middle")
-        .attr("transform", `translate(${margin.left - 30}, ${margin.top + height / 2}) rotate(-90)`)
+        .call(d3.axisLeft(yScaleLeft).ticks(6))
+        .append("text")
+        .attr("fill", "#000")
+        .attr("transform", "rotate(-90)")
+        .attr("y", -50)
+        .attr("dy", "0.71em")
+        .attr("text-anchor", "end")
         .text("Crop Production (t)");
       
-      // Draw data points
       svg.append("g")
-        .selectAll("circle")
-        .data(agriMergedData)
+        .attr("transform", `translate(${margin.left + width}, 0)`)
+        .call(d3.axisRight(yScaleRight).ticks(6))
+        .append("text")
+        .attr("fill", "#000")
+        .attr("transform", "rotate(90)")
+        .attr("y", -40)
+        .attr("dy", "0.71em")
+        .attr("text-anchor", "end")
+        .text("CO₂ Emissions (t)");
+      
+      // Line generator for crop production
+      const lineCrop = d3.line()
+        .x(d => xScale(d.year))
+        .y(d => yScaleLeft(d.production));
+      
+      // Line generator for CO₂ emissions
+      const lineCO2 = d3.line()
+        .x(d => xScale(d.year))
+        .y(d => yScaleRight(d.co2));
+      
+      // Sort data by year
+      cropData.sort((a,b) => a.year - b.year);
+      co2Data.sort((a,b) => a.year - b.year);
+      
+      // Draw lines
+      svg.append("path")
+        .datum(cropData)
+        .attr("fill", "none")
+        .attr("stroke", "#2980b9")
+        .attr("stroke-width", 2)
+        .attr("d", lineCrop);
+      
+      svg.append("path")
+        .datum(co2Data)
+        .attr("fill", "none")
+        .attr("stroke", "#8e44ad")
+        .attr("stroke-width", 2)
+        .attr("d", lineCO2);
+      
+      // Optionally, add circles for data points on both lines
+      svg.selectAll(".dotCrop")
+        .data(cropData)
         .enter()
         .append("circle")
-        .attr("cx", d => xScale(d.co2))
-        .attr("cy", d => yScale(d.production))
-        .attr("r", 6)
-        .attr("fill", "#e67e22");
+        .attr("class", "dotCrop")
+        .attr("cx", d => xScale(d.year))
+        .attr("cy", d => yScaleLeft(d.production))
+        .attr("r", 4)
+        .attr("fill", "#2980b9");
+      
+      svg.selectAll(".dotCO2")
+        .data(co2Data)
+        .enter()
+        .append("circle")
+        .attr("class", "dotCO2")
+        .attr("cx", d => xScale(d.year))
+        .attr("cy", d => yScaleRight(d.co2))
+        .attr("r", 4)
+        .attr("fill", "#8e44ad");
     }
     
-    /***** 3. TIMELINE ANALYSIS CHART (Combined Normalized Trends) *****/
+    /***** 3. TIMELINE ANALYSIS: NORMALIZED TRENDS (ONLY IF COMMON YEARS EXIST) *****/
     function drawTimelineChart() {
-      // Build a combined dataset from climateData and agriMergedData based on common years.
+      // Find common years among climate, crop, and CO₂ datasets
       const climateYears = new Set(climateData.map(d => d.Year));
-      const agriYears = new Set(agriMergedData.map(d => d.year));
-      const commonYears = Array.from(climateYears).filter(y => agriYears.has(y)).sort((a, b) => a - b);
+      const cropYears = new Set(cropData.map(d => d.year));
+      const co2Years = new Set(co2Data.map(d => d.year));
+      const commonYears = Array.from(climateYears).filter(y => cropYears.has(y) && co2Years.has(y)).sort((a, b) => a - b);
       
-      // For each common year, combine climate variables (Temperature, VegetationIndex)
-      // and agriculture variables (production, co2)
+      if(commonYears.length === 0) {
+        d3.select("#timeline-msg").text("No common years found among all datasets for timeline analysis.");
+        return;
+      }
+      
+      // Merge data for the common years
       const combinedData = commonYears.map(year => {
         const climateRow = climateData.find(d => d.Year === year);
-        const agriRow = agriMergedData.find(d => d.year === year);
+        const cropRow = cropData.find(d => d.year === year);
+        const co2Row = co2Data.find(d => d.year === year);
         return {
           year: year,
           Temperature: climateRow ? climateRow.Temperature : null,
           VegetationIndex: climateRow ? climateRow.VegetationIndex : null,
-          production: agriRow ? agriRow.production : null,
-          co2: agriRow ? agriRow.co2 : null
+          production: cropRow ? cropRow.production : null,
+          co2: co2Row ? co2Row.co2 : null
         };
       });
       
-      // Normalize each variable to a [0,1] scale so they can be compared on the same plot.
+      // Normalize each variable to [0,1]
       function normalize(key) {
         const values = combinedData.map(d => d[key]);
         const minVal = d3.min(values);
@@ -320,7 +353,6 @@
       const width = svgWidth - margin.left - margin.right;
       const height = svgHeight - margin.top - margin.bottom;
       
-      // Scales
       const xScale = d3.scaleLinear()
         .domain(d3.extent(combinedData, d => d.year))
         .range([margin.left, margin.left + width]);
@@ -333,7 +365,6 @@
       svg.append("g")
         .attr("transform", `translate(0, ${margin.top + height})`)
         .call(d3.axisBottom(xScale).tickFormat(d3.format("d")));
-      
       svg.append("g")
         .attr("transform", `translate(${margin.left}, 0)`)
         .call(d3.axisLeft(yScale).ticks(5));
@@ -343,7 +374,6 @@
         .x(d => xScale(d.year))
         .y(d => yScale(d.value));
       
-      // Define the data series with name, normalized key, and a color.
       const series = [
         { name: "Temperature", key: "norm_Temperature", color: "#e74c3c" },
         { name: "Vegetation Index", key: "norm_VegetationIndex", color: "#27ae60" },
@@ -351,7 +381,6 @@
         { name: "CO₂ Emissions", key: "norm_co2", color: "#8e44ad" }
       ];
       
-      // Draw a line for each series
       series.forEach(s => {
         const lineData = combinedData.map(d => ({ year: d.year, value: d[s.key] }));
         svg.append("path")
@@ -362,7 +391,7 @@
           .attr("d", lineGen);
       });
       
-      // Add a legend
+      // Legend
       const legend = svg.append("g")
         .attr("class", "legend")
         .attr("transform", `translate(${margin.left + width + 20}, ${margin.top})`);
